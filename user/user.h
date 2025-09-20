@@ -21,6 +21,7 @@ int mkdir(const char*);
 int chdir(const char*);
 int dup(int);
 int getpid(void);
+int getppid(void); //agregamos referencia para que pueda llamar a getppid
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);

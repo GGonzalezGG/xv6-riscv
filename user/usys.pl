@@ -39,6 +39,7 @@ entry("mkdir");
 entry("chdir");
 entry("dup");
 entry("getpid");
+entry("getppid"); #Agregamos referencia para que usuarios puedan comunicarse con getppid
 entry("sbrk");
 entry("pause");
 entry("uptime");

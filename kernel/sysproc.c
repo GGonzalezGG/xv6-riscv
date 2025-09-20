@@ -23,6 +23,18 @@ sys_getpid(void)
 }
 
 uint64
+sys_getppid(void)
+{
+  struct proc *p = myproc();  // Obtener el proceso actual
+  
+  // Verificar que el proceso tenga un padre válido
+  if(p->parent == 0)
+    return -1;  // No tiene padre (es init)
+    
+  return p->parent->pid;  // Retornar el PID del padre
+}
+
+uint64
 sys_fork(void)
 {
   return kfork();
