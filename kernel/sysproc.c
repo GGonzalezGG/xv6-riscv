@@ -22,6 +22,7 @@ sys_getpid(void)
   return myproc()->pid;
 }
 
+//agregamos getppid
 uint64
 sys_getppid(void)
 {
@@ -32,6 +33,33 @@ sys_getppid(void)
     return -1;  // No tiene padre (es init)
     
   return p->parent->pid;  // Retornar el PID del padre
+}
+
+//agregamos getancestor
+uint64
+sys_getancestor(void) 
+{
+    int level;
+    
+    // argint() retorna void, así que no verificamos su retorno
+    argint(0, &level);
+    
+    struct proc *p = myproc();
+    
+    if(level < 0)
+        return -1;
+    
+    if(level == 0)
+        return p->pid;
+    
+    struct proc *current = p;
+    for(int i = 0; i < level; i++) {
+        if(current->parent == 0)
+            return -1;
+        current = current->parent;
+    }
+    
+    return current->pid;
 }
 
 uint64

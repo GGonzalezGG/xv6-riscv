@@ -22,6 +22,7 @@ int chdir(const char*);
 int dup(int);
 int getpid(void);
 int getppid(void); //agregamos referencia para que pueda llamar a getppid
+int getancestor(int); //agregamos referencia a getancestor
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
