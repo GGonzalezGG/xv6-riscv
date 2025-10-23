@@ -418,12 +418,15 @@ kwait(uint64 addr)
 
 //Creamos una función para generar números aleatorios para el lottery scheduler
 // Generador simple de números pseudo-aleatorios
-static unsigned long rand_state = 1;
+static unsigned long xorshift_state = 123456789;
+
 int
 random(void)
 {
-  rand_state = rand_state * 1103515245 + 12345;
-  return (unsigned int)(rand_state / 65536) % 32768;
+  xorshift_state ^= xorshift_state << 13;
+  xorshift_state ^= xorshift_state >> 17;
+  xorshift_state ^= xorshift_state << 5;
+  return (int)(xorshift_state & 0x7FFFFFFF);
 }
 // Per-CPU process scheduler.
 // Reemplazamos el scheduler por defecto por el lottery scheduler
@@ -432,16 +435,14 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+ 
   c->proc = 0;
   for(;;){
-    // Evitar interrupciones durante la selección
     intr_on();
-
-  retry: // <-- Etiqueta para reintentar
-    int total_tickets = 0;
     
-    // Bucle 1: Calcular total de tickets de procesos RUNNABLE
+    int total_tickets = 0;
+   
+    // Calcular total de tickets de procesos RUNNABLE
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
@@ -449,49 +450,35 @@ scheduler(void)
       }
       release(&p->lock);
     }
-    
-    // Si no hay tickets, continuar (esto está bien)
+    // si no hay tickets, continuar
     if(total_tickets == 0)
       continue;
-    
+   
     // Generar número aleatorio entre 1 y total_tickets
     int winner = 1 + (random() % total_tickets);
     int accumulated = 0;
-    struct proc *chosen = 0; // <-- Guardar el ganador aquí
-    
-    // Bucle 2: Buscar el proceso ganador
+   
+    // Buscar el proceso ganador
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         accumulated += p->tickets;
-        
+       
         if(accumulated >= winner) {
-          // Lo encontramos. Guardarlo y salir del bucle.
-          chosen = p; 
-          break; // Salir del for(p...
+          // Este proceso ganó la lotería
+          p->run_slices++;
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+         
+          // El proceso terminó de ejecutar
+          c->proc = 0;
+          release(&p->lock);
+          break; //Romper el loop
         }
       }
-      release(&p->lock); // Soltar lock si no es el ganador
+      release(&p->lock); // Liberar si NO es el ganador
     }
-
-    if(chosen == 0) {
-      // NO se encontró ganador (por la condición de carrera).
-      // Los tickets totales eran 'stale' (viejos).
-      // Volver a intentarlo inmediatamente.
-      goto retry;
-    }
-
-    // Si llegamos aquí, 'chosen' (que es 'p') es el ganador
-    // y todavía tenemos su lock adquirido desde el bucle
-    
-    p->run_slices++;  // Incrementar contador 
-    p->state = RUNNING;
-    c->proc = p;
-    swtch(&c->context, &p->context);
-    
-    // El proceso terminó de ejecutar
-    c->proc = 0;
-    release(&p->lock); // Soltar el lock del ganador
   }
 }
 

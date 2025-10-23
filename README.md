@@ -55,8 +55,10 @@ static unsigned long rand_state = 1;
 int
 random(void)
 {
-  rand_state = rand_state * 1103515245 + 12345;
-  return (unsigned int)(rand_state / 65536) % 32768;
+  xorshift_state ^= xorshift_state << 13;
+  xorshift_state ^= xorshift_state >> 17;
+  xorshift_state ^= xorshift_state << 5;
+  return (int)(xorshift_state & 0x7FFFFFFF);
 }
 // Per-CPU process scheduler.
 // Reemplazamos el scheduler por defecto por el lottery scheduler
@@ -205,7 +207,7 @@ entry("getslices");
 La primera dificultad fue que cuando probé demo.c e intentaba ver los tickets y run_slices, al printear me daba muchos errores de formato, lo que se debía a que los procesos se peleaban al momento de imprimir, y se solucionó parcialmente cuando cambié demo.c para que guarde en un struct los resultados y luego los muestre.
 
 Ahí surgió otro error, que se seguían imprimiendo mal, pero ademas cuando se imprimian parcialmente bien mostraba que todos los run_slice eran 0, esto se debe a que se me olvidó inicializar en proc.c los run_slices. Luego, sin importar los tickets todos daban un tiempo de más o menos 2, que sucedia porque necesitaba procesos más pesados para que se alcanzara a usar y notar el scheduler, por lo que agregué más tiempo inutil y trabajo pesado en demo.c
-Finalmente, en varias pruebas la proporcionalidad esperada no se cumplía, por lo que se agregó un re-try al scheduler, para que en caso de interrumpciones vuelva a recontar los tickets y no se pierdan ciclos, afectando la proporcionalidad de los tickets.
+Finalmente, en varias pruebas la proporcionalidad esperada no se cumplía, por lo que se agregó un re-try al scheduler, pero no hubo cambio, así que o saque para asegurar que se rompa bien el ciclo en el scheduler. Luego, cambié la función de random en proc.c por una más sofisticada, y si bien sigue teniendo problemas de proporcionalidad por su naturaleza probabilistica, mejoró bastante respecto a la primera implementación.
 
 Después de esto, las pruebas parecen ir algo mejor, teniendo menos intentos desproporcionales, pero ya que hay un factor pseudo random, y no vi más fallos en la lógica, decidí atribuirlo a variaciones en la necesidad de tiempo de los procesos y el factor aleatoreo, ya que siguen siendo resultados coherentes y parece funcionar el lottery scheduler.
 
