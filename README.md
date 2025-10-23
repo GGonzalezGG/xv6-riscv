@@ -218,33 +218,33 @@ Aunque el Lottery Scheduler es un algoritmo elegante que proporciona control pro
 
 Al ser probabilistico, la proporcionalidad solo se garantiza estadísticamente a largo plazo, con procesos generalmente cortos, a pesar de que forcé ligeramente más peso para cada uno, la proporcionalidad sigue sin cumplirse a veces.
 
-    - Mala Suerte: En un período corto, es perfectamente posible que un proceso con muchos tickets "pierda" la lotería repetidamente, mientras que un proceso con pocos tickets "gane" varias veces seguidas.
+  - Mala Suerte: En un período corto, es perfectamente posible que un proceso con muchos tickets "pierda" la lotería repetidamente, mientras que un proceso con pocos tickets "gane" varias veces seguidas.
 
-    - Latencia Impredecible: Esto es especialmente problemático para procesos interactivos (como un editor de texto o una terminal) que necesitan una respuesta rápida. Si un proceso de alta prioridad (muchos tickets) tiene mala suerte, el usuario experimentará una latencia notable, haciendo que el sistema se sienta lento.
+  - Latencia Impredecible: Esto es especialmente problemático para procesos interactivos (como un editor de texto o una terminal) que necesitan una respuesta rápida. Si un proceso de alta prioridad (muchos tickets) tiene mala suerte, el usuario experimentará una latencia notable, haciendo que el sistema se sienta lento.
 
 2. Manejo de Procesos I/O-Bound
 
 El Lottery Scheduling no distingue inherentemente entre procesos limitados por CPU (CPU-Bound) y procesos limitados por E/S (I/O-Bound).
 
-    - Un proceso I/O-Bound (ej. que espera un paquete de red) pasa la mayor parte de su tiempo en estado SLEEPING. Cuando finalmente recibe sus datos y pasa a RUNNABLE, necesita ejecutarse inmediatamente para procesar esos datos y volver a dormir.
+  - Un proceso I/O-Bound (ej. que espera un paquete de red) pasa la mayor parte de su tiempo en estado SLEEPING. Cuando finalmente recibe sus datos y pasa a RUNNABLE, necesita ejecutarse inmediatamente para procesar esos datos y volver a dormir.
 
-    - En este scheduler, ese proceso simplemente entra a la lotería. Debe competir (y ganar) contra todos los procesos CPU-Bound que están constantemente en estado RUNNABLE. Esto puede causar que la respuesta a eventos de I/O sea lenta.
+  - En este scheduler, ese proceso simplemente entra a la lotería. Debe competir (y ganar) contra todos los procesos CPU-Bound que están constantemente en estado RUNNABLE. Esto puede causar que la respuesta a eventos de I/O sea lenta.
 
 3. Asignación y Distribución de Tickets
 
 Determinar la cantidad "correcta" de tickets para un proceso no es trivial.
 
-     - Abstracción Pobre: A diferencia de un sistema de "prioridad" (donde "alta" o "baja" es intuitivo), no es claro cuántos tickets debe tener un proceso. ¿Un servidor web debe tener 1000 tickets o 100? ¿Cuántos más que un compilador? Esto complica la administración del sistema.
+  - Abstracción Pobre: A diferencia de un sistema de "prioridad" (donde "alta" o "baja" es intuitivo), no es claro cuántos tickets debe tener un proceso. ¿Un servidor web debe tener 1000 tickets o 100? ¿Cuántos más que un compilador? Esto complica la administración del sistema.
 
-     - Inflación de Tickets: ¿Qué sucede cuando un proceso con muchos tickets crea un hijo (fork())? Si el hijo hereda la misma cantidad de tickets, el número total de tickets en el sistema se "infla", devaluando los tickets de todos los demás. Si los tickets se dividen entre padre e hijo, un proceso puede crear muchos hijos para acaparar más CPU de la que le correspondía.
+  - Inflación de Tickets: ¿Qué sucede cuando un proceso con muchos tickets crea un hijo (fork())? Si el hijo hereda la misma cantidad de tickets, el número total de tickets en el sistema se "infla", devaluando los tickets de todos los demás. Si los tickets se dividen entre padre e hijo, un proceso puede crear muchos hijos para acaparar más CPU de la que le correspondía.
 
 4. Sobrecarga (Overhead) del Scheduler
 
 Comparado con un simple Round-Robin, el Lottery Scheduler introduce más trabajo en cada ciclo de planificación.
 
-    - Como se requiere en esta tarea, el scheduler debe primero iterar sobre todos los procesos RUNNABLE para calcular el total_tickets.
+  - Como se requiere en esta tarea, el scheduler debe primero iterar sobre todos los procesos RUNNABLE para calcular el total_tickets.
 
-    - Luego, debe generar un número aleatorio y volver a iterar sobre los procesos hasta encontrar al ganador. En un sistema con miles de procesos, este doble recorrido puede sumar una sobrecarga significativa que no existe en algoritmos más simples.
+  - Luego, debe generar un número aleatorio y volver a iterar sobre los procesos hasta encontrar al ganador. En un sistema con miles de procesos, este doble recorrido puede sumar una sobrecarga significativa que no existe en algoritmos más simples.
 
 
 ### Tarea 2 SO Guillermo González
