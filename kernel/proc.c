@@ -124,6 +124,8 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->tickets = 100; //Inicializamos todos los procesos con 100 tickets
+  p->run_slices = 0; // Inicializamos los slices corridos a 0
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -414,51 +416,82 @@ kwait(uint64 addr)
   }
 }
 
+//Creamos una función para generar números aleatorios para el lottery scheduler
+// Generador simple de números pseudo-aleatorios
+static unsigned long rand_state = 1;
+int
+random(void)
+{
+  rand_state = rand_state * 1103515245 + 12345;
+  return (unsigned int)(rand_state / 65536) % 32768;
+}
 // Per-CPU process scheduler.
-// Each CPU calls scheduler() after setting itself up.
-// Scheduler never returns.  It loops, doing:
-//  - choose a process to run.
-//  - swtch to start running that process.
-//  - eventually that process transfers control
-//    via swtch back to the scheduler.
+// Reemplazamos el scheduler por defecto por el lottery scheduler
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
+  
   c->proc = 0;
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
+    // Evitar interrupciones durante la selección
     intr_on();
-    intr_off();
 
-    int found = 0;
+  retry: // <-- Etiqueta para reintentar
+    int total_tickets = 0;
+    
+    // Bucle 1: Calcular total de tickets de procesos RUNNABLE
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+        total_tickets += p->tickets;
       }
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      asm volatile("wfi");
+    
+    // Si no hay tickets, continuar (esto está bien)
+    if(total_tickets == 0)
+      continue;
+    
+    // Generar número aleatorio entre 1 y total_tickets
+    int winner = 1 + (random() % total_tickets);
+    int accumulated = 0;
+    struct proc *chosen = 0; // <-- Guardar el ganador aquí
+    
+    // Bucle 2: Buscar el proceso ganador
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        accumulated += p->tickets;
+        
+        if(accumulated >= winner) {
+          // Lo encontramos. Guardarlo y salir del bucle.
+          chosen = p; 
+          break; // Salir del for(p...
+        }
+      }
+      release(&p->lock); // Soltar lock si no es el ganador
     }
+
+    if(chosen == 0) {
+      // NO se encontró ganador (por la condición de carrera).
+      // Los tickets totales eran 'stale' (viejos).
+      // Volver a intentarlo inmediatamente.
+      goto retry;
+    }
+
+    // Si llegamos aquí, 'chosen' (que es 'p') es el ganador
+    // y todavía tenemos su lock adquirido desde el bucle
+    
+    p->run_slices++;  // Incrementar contador 
+    p->state = RUNNING;
+    c->proc = p;
+    swtch(&c->context, &p->context);
+    
+    // El proceso terminó de ejecutar
+    c->proc = 0;
+    release(&p->lock); // Soltar el lock del ganador
   }
 }
 

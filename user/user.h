@@ -24,6 +24,8 @@ int getpid(void);
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
+int settickets(int);    //llamada al sistema settickets
+int getslices(void);   //llamada al sistema getslices
 
 // ulib.c
 int stat(const char*, struct stat*);

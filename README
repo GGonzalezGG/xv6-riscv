@@ -1,48 +1,248 @@
-xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
-Version 6 (v6).  xv6 loosely follows the structure and style of v6,
-but is implemented for a modern RISC-V multiprocessor using ANSI C.
+# Informe tarea 2 Sistemas Operativos
+#### Guillermo González
 
-ACKNOWLEDGMENTS
+## Funcionalidad y l+ogica de implementación
 
-xv6 is inspired by John Lions's Commentary on UNIX 6th Edition (Peer
-to Peer Communications; ISBN: 1-57398-013-7; 1st edition (June 14,
-2000)).  See also https://pdos.csail.mit.edu/6.1810/, which provides
-pointers to on-line resources for v6.
+### Scheduler
+La tarea consiste en en cambiar el scheduler roundrobin default de xv6 por uno de lottery. Por lo cual lo cambié la lógica interna de la función scheduler() dentro de proc.c para que ocupara este sistema. Mi implementación del Lottery Scheduler busca asignar tiempo de CPU de forma proporcional a los "tickets" de cada proceso. Funciona en dos pasadas por cada decisión:
 
-The following people have made contributions: Russ Cox (context switching,
-locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, and Austin
-Clements.
+    Pasada 1 (Conteo): El scheduler primero recorre todos los procesos para sumar los tickets de aquellos que están listos para ejecutarse (estado RUNNABLE). El resultado es el total_tickets en juego.
 
-We are also grateful for the bug reports and patches contributed by
-Abhinavpatel00, Takahiro Aoyagi, Marcelo Arroyo, Hirbod Behnam, Silas
-Boyd-Wickizer, Anton Burtsev, carlclone, Ian Chen, clivezeng, Dan
-Cross, Cody Cutler, Mike CAT, Tej Chajed, Asami Doi,Wenyang Duan,
-echtwerner, eyalz800, Nelson Elhage, Saar Ettinger, Alice Ferrazzi,
-Nathaniel Filardo, flespark, Peter Froehlich, Yakir Goaron, Shivam
-Handa, Matt Harvey, Bryan Henry, jaichenhengjie, Jim Huang, Matúš
-Jókay, John Jolly, Alexander Kapshuk, Anders Kaseorg, kehao95,
-Wolfgang Keller, Jungwoo Kim, Jonathan Kimmitt, Eddie Kohler, Vadim
-Kolontsov, Austin Liew, l0stman, Pavan Maddamsetti, Imbar Marinescu,
-Yandong Mao, Matan Shabtay, Hitoshi Mitake, Carmi Merimovich,
-mes900903, Mark Morrissey, mtasm, Joel Nider, Hayato Ohhashi,
-OptimisticSide, papparapa, phosphagos, Harry Porter, Greg Price, Zheng
-qhuo, Quancheng, RayAndrew, Jude Rich, segfault, Ayan Shafqat, Eldar
-Sehayek, Yongming Shen, Fumiya Shigemitsu, snoire, Taojie, Cam Tenny,
-tyfkda, Warren Toomey, Stephen Tu, Alissa Tung, Rafael Ubal, unicornx,
-Amane Uehara, Pablo Ventura, Luc Videau, Xi Wang, WaheedHafez, Keiichi
-Watanabe, Lucas Wolf, Nicolas Wolovick, wxdao, Grant Wu, x653, Andy
-Zhang, Jindong Zhang, Icenowy Zheng, ZhUyU1997, and Zou Chang Wei.
+    Pasada 2 (Selección): Se genera un número aleatorio ("ticket ganador") entre 1 y total_tickets. El scheduler vuelve a recorrer los procesos RUNNABLE, sumando sus tickets uno por uno hasta que la suma acumulada alcanza o supera al "ticket ganador". El último proceso sumado es el ganador y se empieza a ejecutar.
 
-ERROR REPORTS
+También tiene un condicional que si ve que el total de tickets es 0 continua normalmente al siguiente ciclo sin bloquear el scheduler. Además de tener un retry en caso de que algún ciclo se vea interrumpido.
+Para esto, tambien se tuvo que agregar atributos a los procesos, para que estos guardaran su numero de tickets, y su run_slice para poder medirlos después, el cual se contabiliza dentro del scheduler.
 
-Please send errors and suggestions to Frans Kaashoek and Robert Morris
-(kaashoek,rtm@mit.edu).  The main purpose of xv6 is as a teaching
-operating system for MIT's 6.1810, so we are more interested in
-simplifications and clarifications than new features.
+### Llamadas al sistema
 
-BUILDING AND RUNNING XV6
+#### settickets
+Se agregó una función que permite modificar la cantidad de tickets de cada proceso, dejando una cantidad minima necesaria de 1, en caso de que se asigne un valor inferior se deja con 1 ticket a cada proceso, la cual simplemente modifica el valor inicial por default de 100, en el puntero que guarda el atributo de tickets en el struct de los procesos.
 
-You will need a RISC-V "newlib" tool chain from
-https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
-riscv64-softmmu.  Once they are installed, and in your shell
-search path, you can run "make qemu".
+#### get_slices
+Esta función simplemente obtiene el valor de run_slices para cada proceso, para luego poder medirlo desde el lado de usuario y así poder contabilizar el uso de cpu, y luego poder ver la proporcionalidad a los tickets.
+
+Al ser ambas llamadas al sistemas, la logica se maneja en sysproc.c, se declaran las las llamadas en syscall.h y syscall.c, y se hacen disponibles al usuario en user.h y user.pl, como vimos a detalle en la tarea anterior.
+
+## Modificaciones realizadas por archivo
+
+### proc.h
+Primero, modificamos los atributos del struct de proc, agregando para que los procesos tengan tickets, para implementar el lottery scheduling, y runslices para luego poder contabilizar el scheduler, agregando este codigo:
+
+```
+// Per-process state
+struct proc {
+  (...)
+  int tickets;                  // tickets para aplicar lottery schedling
+  int run_slices;               // Cantidad de slices que ha corrido para contabilizar
+```
+
+### proc.c
+
+Inicializamos las variables con los valores iniciales de tickets y procesos
+```
+static struct proc*
+allocproc(void)
+  (...)
+  p->tickets = 100; //Inicializamos todos los procesos con 100 tickets
+  p->run_slices = 0; // Inicializamos los slices corridos a 0
+```
+Luego agregamos una función que nos permite generar numero pseudo aleatoreos para utilizar en el scheduler de loteria, y cambiamos la lógica de la función de scheduler para que ahora funcione con el sistema de loteria.
+
+```
+//Creamos una función para generar números aleatorios para el lottery scheduler
+// Generador simple de números pseudo-aleatorios
+static unsigned long rand_state = 1;
+int
+random(void)
+{
+  rand_state = rand_state * 1103515245 + 12345;
+  return (unsigned int)(rand_state / 65536) % 32768;
+}
+// Per-CPU process scheduler.
+// Reemplazamos el scheduler por defecto por el lottery scheduler
+void
+scheduler(void)
+{
+  struct proc *p;
+  struct cpu *c = mycpu();
+  
+  c->proc = 0;
+  for(;;){
+    // Evitar interrupciones durante la selección
+    intr_on();
+
+  retry: // <-- Etiqueta para reintentar
+    int total_tickets = 0;
+    
+    // Bucle 1: Calcular total de tickets de procesos RUNNABLE
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        total_tickets += p->tickets;
+      }
+      release(&p->lock);
+    }
+    
+    // Si no hay tickets, continuar (esto está bien)
+    if(total_tickets == 0)
+      continue;
+    
+    // Generar número aleatorio entre 1 y total_tickets
+    int winner = 1 + (random() % total_tickets);
+    int accumulated = 0;
+    struct proc *chosen = 0; // <-- Guardar el ganador aquí
+    
+    // Bucle 2: Buscar el proceso ganador
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        accumulated += p->tickets;
+        
+        if(accumulated >= winner) {
+          // Lo encontramos. Guardarlo y salir del bucle.
+          chosen = p; 
+          break; // Salir del for(p...
+        }
+      }
+      release(&p->lock); // Soltar lock si no es el ganador
+    }
+
+    if(chosen == 0) {
+      // NO se encontró ganador (por la condición de carrera).
+      // Los tickets totales eran 'stale' (viejos).
+      // Volver a intentarlo inmediatamente.
+      goto retry;
+    }
+
+    // Si llegamos aquí, 'chosen' (que es 'p') es el ganador
+    // y todavía tenemos su lock adquirido desde el bucle
+    
+    p->run_slices++;  // Incrementar contador 
+    p->state = RUNNING;
+    c->proc = p;
+    swtch(&c->context, &p->context);
+    
+    // El proceso terminó de ejecutar
+    c->proc = 0;
+    release(&p->lock); // Soltar el lock del ganador
+  }
+}
+```
+
+### syscall.h
+Agregamos las referencias a las nuevas llamadas, para que estas puedan ser utilzadas y referenciadas desde otras partes del sistema en base a la modularidad.
+```
+#define SYS_settickets 22
+#define SYS_getslices 23
+```
+
+### syscall.c
+Agregamos las nuevas llamadas al archivo que maneja todas las llamadas al sistema, para que estas se puedan comunicar con el sistema y ser ejecutadas. Agregamos a un array que nos trae las funciones declaradas desde syscall.h para que luego se puedan manejar desde la función.
+```
+extern uint64 sys_settickets(void);
+extern uint64 sys_getslices(void);
+
+(...)
+// An array mapping syscall numbers from syscall.h
+// to the function that handles the system call.
+static uint64 (*syscalls[])(void) = {
+(...)
+[SYS_settickets] sys_settickets,
+[SYS_getslices] sys_getslices,
+};
+```
+
+### sysproc.c
+Agregamos las funciones para comunicarnos con el kernel, poder asignar tickets y obtener los run_slice con getslices
+
+```
+// Agregamos la syscall settickets
+uint64
+sys_settickets(void)
+{
+  int n;
+  
+  // Obtener el argumento
+  argint(0, &n);
+  
+  // Validar que sea al menos 1
+  if(n < 1)
+    n = 1;
+  
+  // Asignar tickets al proceso actual
+  struct proc *p = myproc();
+  acquire(&p->lock);
+  p->tickets = n;
+  release(&p->lock);
+  
+  return 0;
+}
+
+uint64
+sys_getslices(void)
+{
+  struct proc *p = myproc();
+  return p->run_slices;
+}
+```
+
+### user.h
+Agregamos las funciones en conjunto con las otras que se utilizan para hacer llamadas al sistema. Así los usuarios podrán hacer llamadas y utilizar funciones de sistema utilizando la función de forma correcta.
+```
+int settickets(int);    //llamada al sistema settickets
+int getslices(void);   //llamada al sistema getslices
+```
+
+### usys.pl
+Agregamos entradas para que el apartado del usuario se pueda comunicar bien con el kernel, aqui se agrega el prefijo de sys_ que se utiliza en syscall.c para que estos se comuniquen de forma efectiva y se pueda hacer la llamada de forma correcta.
+
+```
+entry("settickets");
+entry("getslices");
+```
+
+## Dificultades y soluciones implementadas
+La primera dificultad fue que cuando probé demo.c e intentaba ver los tickets y run_slices, al printear me daba muchos errores de formato, lo que se debía a que los procesos se peleaban al momento de imprimir, y se solucionó parcialmente cuando cambié demo.c para que guarde en un struct los resultados y luego los muestre.
+
+Ahí surgió otro error, que se seguían imprimiendo mal, pero ademas cuando se imprimian parcialmente bien mostraba que todos los run_slice eran 0, esto se debe a que se me olvidó inicializar en proc.c los run_slices. Luego, sin importar los tickets todos daban un tiempo de más o menos 2, que sucedia porque necesitaba procesos más pesados para que se alcanzara a usar y notar el scheduler, por lo que agregué más tiempo inutil y trabajo pesado en demo.c
+Finalmente, en varias pruebas la proporcionalidad esperada no se cumplía, por lo que se agregó un re-try al scheduler, para que en caso de interrumpciones vuelva a recontar los tickets y no se pierdan ciclos, afectando la proporcionalidad de los tickets.
+
+Después de esto, las pruebas parecen ir algo mejor, teniendo menos intentos desproporcionales, pero ya que hay un factor pseudo random, y no vi más fallos en la lógica, decidí atribuirlo a variaciones en la necesidad de tiempo de los procesos y el factor aleatoreo, ya que siguen siendo resultados coherentes y parece funcionar el lottery scheduler.
+
+## Posibles problemas de Lottery Scheduler
+Aunque el Lottery Scheduler es un algoritmo elegante que proporciona control proporcional sobre la asignación de CPU, presenta varias desventajas y problemas prácticos:
+
+1. Injusticia a Corto Plazo y Latencia
+
+Al ser probabilistico, la proporcionalidad solo se garantiza estadísticamente a largo plazo, con procesos generalmente cortos, a pesar de que forcé ligeramente más peso para cada uno, la proporcionalidad sigue sin cumplirse a veces.
+
+    Mala Suerte: En un período corto, es perfectamente posible que un proceso con muchos tickets "pierda" la lotería repetidamente, mientras que un proceso con pocos tickets "gane" varias veces seguidas.
+
+    Latencia Impredecible: Esto es especialmente problemático para procesos interactivos (como un editor de texto o una terminal) que necesitan una respuesta rápida. Si un proceso de alta prioridad (muchos tickets) tiene mala suerte, el usuario experimentará una latencia notable, haciendo que el sistema se sienta lento.
+
+2. Manejo de Procesos I/O-Bound
+
+El Lottery Scheduling no distingue inherentemente entre procesos limitados por CPU (CPU-Bound) y procesos limitados por E/S (I/O-Bound).
+
+    Un proceso I/O-Bound (ej. que espera un paquete de red) pasa la mayor parte de su tiempo en estado SLEEPING. Cuando finalmente recibe sus datos y pasa a RUNNABLE, necesita ejecutarse inmediatamente para procesar esos datos y volver a dormir.
+
+    En este scheduler, ese proceso simplemente entra a la lotería. Debe competir (y ganar) contra todos los procesos CPU-Bound que están constantemente en estado RUNNABLE. Esto puede causar que la respuesta a eventos de I/O sea lenta.
+
+3. Asignación y Distribución de Tickets
+
+Determinar la cantidad "correcta" de tickets para un proceso no es trivial.
+
+    Abstracción Pobre: A diferencia de un sistema de "prioridad" (donde "alta" o "baja" es intuitivo), no es claro cuántos tickets debe tener un proceso. ¿Un servidor web debe tener 1000 tickets o 100? ¿Cuántos más que un compilador? Esto complica la administración del sistema.
+
+    Inflación de Tickets: ¿Qué sucede cuando un proceso con muchos tickets crea un hijo (fork())? Si el hijo hereda la misma cantidad de tickets, el número total de tickets en el sistema se "infla", devaluando los tickets de todos los demás. Si los tickets se dividen entre padre e hijo, un proceso puede crear muchos hijos para acaparar más CPU de la que le correspondía.
+
+4. Sobrecarga (Overhead) del Scheduler
+
+Comparado con un simple Round-Robin, el Lottery Scheduler introduce más trabajo en cada ciclo de planificación.
+
+    Como se requiere en esta tarea, el scheduler debe primero iterar sobre todos los procesos RUNNABLE para calcular el total_tickets.
+
+    Luego, debe generar un número aleatorio y volver a iterar sobre los procesos hasta encontrar al ganador. En un sistema con miles de procesos, este doble recorrido puede sumar una sobrecarga significativa que no existe en algoritmos más simples.
+
+
+### Tarea 2 SO Guillermo González
