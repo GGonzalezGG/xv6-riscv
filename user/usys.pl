@@ -42,3 +42,5 @@ entry("getpid");
 entry("sbrk");
 entry("pause");
 entry("uptime");
+entry("mrdprotect"); #Agregamos la entrada para las nuevas llamadas al sistema
+entry("munrdprotect");

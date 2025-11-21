@@ -68,6 +68,96 @@ kvminit(void)
   kernel_pagetable = kvmmake();
 }
 
+
+
+//Agregamos las nuevas funciones mrdprotect y munrdprotect
+int
+mrdprotect(void *addr, int len)
+{
+  struct proc *p = myproc();
+  uint64 va = (uint64)addr;
+  
+  // Validaciones básicas
+  if (len <= 0)
+    return -1;
+  
+  // Verificar alineación de página
+  if (va % PGSIZE != 0)
+    return -1;
+  
+  // Verificar que esté en espacio de usuario
+  if (va >= p->sz)
+    return -1;
+  
+  // Recorrer cada página del rango
+  for (int i = 0; i < len; i++) {
+    uint64 current_va = va + i * PGSIZE;
+    
+    // Verificar que no exceda el tamaño del proceso
+    if (current_va >= p->sz)
+      return -1;
+    
+    // Obtener el PTE usando walk()
+    pte_t *pte = walk(p->pagetable, current_va, 0);
+    
+    // Verificar que el PTE exista y sea válido
+    if (pte == 0 || (*pte & PTE_V) == 0)
+      return -1;
+    
+    // Verificar que sea una página de usuario
+    if ((*pte & PTE_U) == 0)
+      return -1;
+    
+    // Limpiar el bit de lectura (PTE_R)
+    *pte = *pte & ~PTE_R;
+  }
+  
+  return 0;
+}
+
+int
+munrdprotect(void *addr, int len)
+{
+  struct proc *p = myproc();
+  uint64 va = (uint64)addr;
+  
+  // Validaciones básicas
+  if (len <= 0)
+    return -1;
+  
+  // Verificar alineación de página
+  if (va % PGSIZE != 0)
+    return -1;
+  
+  // Verificar que esté en espacio de usuario
+  if (va >= p->sz)
+    return -1;
+  
+  // Recorrer cada página del rango
+  for (int i = 0; i < len; i++) {
+    uint64 current_va = va + i * PGSIZE;
+    
+    if (current_va >= p->sz)
+      return -1;
+    
+    // Obtener el PTE
+    pte_t *pte = walk(p->pagetable, current_va, 0);
+    
+    // Verificar validez
+    if (pte == 0 || (*pte & PTE_V) == 0)
+      return -1;
+    
+    if ((*pte & PTE_U) == 0)
+      return -1;
+    
+    // Restaurar el bit de lectura (PTE_R)
+    *pte = *pte | PTE_R;
+  }
+  
+  return 0;
+}
+
+
 // Switch the current CPU's h/w page table register to
 // the kernel's page table, and enable paging.
 void
